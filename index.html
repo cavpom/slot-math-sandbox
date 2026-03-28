@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slot Math Sandbox</title>
+<style>
+:root {
+  --bg: #0d0d0d;
+  --surface: #161616;
+  --surface2: #1e1e1e;
+  --border: #2a2a2a;
+  --text: #d8d8d8;
+  --dim: #666;
+  --accent: #4a9eff;
+  --red: #e74c3c;
+  --green: #2ecc71;
+  --yellow: #f39c12;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 13px; }
+
+/* ---- Tabs ---- */
+.tab-bar { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 16px; gap: 2px; }
+.tab-btn { background: none; border: none; border-bottom: 2px solid transparent; color: var(--dim); padding: 11px 14px; cursor: pointer; font-size: 13px; transition: color .15s; }
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-pane { display: none; padding: 20px; max-width: 1100px; }
+.tab-pane.active { display: block; }
+
+/* ---- Inputs ---- */
+input[type=number], input[type=file], select {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  padding: 5px 8px; border-radius: 4px; font-size: 13px;
+}
+input[type=number]:focus, select:focus { outline: none; border-color: var(--accent); }
+input[type=number].err { border-color: var(--red); }
+button {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 13px; border-radius: 4px; cursor: pointer; font-size: 13px; transition: background .12s;
+}
+button:hover:not(:disabled) { background: #282828; }
+button:disabled { opacity: .4; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+button.primary:hover:not(:disabled) { background: #3a8eef; }
+button.stop { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
+button.stop:hover:not(:disabled) { background: #c0392b; }
+button.danger { border-color: var(--red); color: var(--red); padding: 2px 8px; font-size: 12px; }
+
+/* ---- Config ---- */
+.cfg-layout { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+.cfg-table-wrap { flex: 1; min-width: 320px; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; padding: 6px 8px; color: var(--dim); font-weight: normal; border-bottom: 1px solid var(--border); font-size: 12px; }
+td { padding: 3px 8px; }
+td input[type=number] { width: 78px; }
+.rtp-col { color: var(--dim); font-size: 12px; }
+.null-row td { color: var(--dim); }
+.freq-err { color: var(--red) !important; font-weight: 600; }
+.cfg-side { min-width: 180px; display: flex; flex-direction: column; gap: 14px; }
+.cfg-side label { color: var(--dim); margin-right: 6px; }
+.rtp-val { font-size: 22px; font-weight: 700; }
+.table-btns { display: flex; gap: 8px; margin-top: 8px; }
+
+/* ---- Sim controls ---- */
+.sim-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.sim-bar label { color: var(--dim); }
+
+/* ---- Stats ---- */
+.stats-row { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 9px 16px; }
+.stat-lbl { font-size: 11px; color: var(--dim); margin-bottom: 3px; }
+.stat-val { font-size: 20px; font-weight: 700; }
+
+/* ---- Charts ---- */
+.chart-section { margin-bottom: 28px; }
+.chart-title { font-size: 12px; color: var(--dim); margin-bottom: 8px; }
+canvas { display: block; width: 100%; background: var(--surface); border-radius: 5px; }
+
+/* ---- Bankroll ---- */
+.mode-bar { display: flex; gap: 6px; margin-bottom: 16px; }
+.mode-bar button.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.legend-item {
+  display: flex; align-items: center; gap: 5px; padding: 4px 9px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+  cursor: pointer; font-size: 12px; user-select: none; transition: opacity .15s;
+}
+.legend-item.off { opacity: .3; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="config">Config</button>
+  <button class="tab-btn" data-tab="dist">Distribution</button>
+  <button class="tab-btn" data-tab="session">Session Outcome</button>
+  <button class="tab-btn" data-tab="roe">ROE</button>
+  <button class="tab-btn" data-tab="bankroll">Bankroll</button>
+</div>
+
+<!-- ===== CONFIG ===== -->
+<div id="pane-config" class="tab-pane active">
+  <div class="cfg-layout">
+    <div class="cfg-table-wrap">
+      <table>
+        <thead><tr>
+          <th>Freq&nbsp;(%)</th>
+          <th>Payout&nbsp;(x)</th>
+          <th>RTP contrib&nbsp;(%)</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="dist-tbody"></tbody>
+        <tfoot><tr class="null-row">
+          <td id="null-freq">—</td>
+          <td style="color:var(--dim)">0x</td>
+          <td style="color:var(--dim)">0</td>
+          <td></td>
+        </tr></tfoot>
+      </table>
+      <div class="table-btns">
+        <button id="btn-add-row">+ Add row</button>
+      </div>
+    </div>
+    <div class="cfg-side">
+      <div>
+        <label>Lines:</label>
+        <select id="sel-lines">
+          <option>1</option><option>5</option>
+          <option selected>10</option><option>20</option><option>50</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--dim);margin-bottom:4px">Total RTP</div>
+        <div class="rtp-val" id="rtp-val">—</div>
+      </div>
+      <button id="btn-fit">Fit to 96%</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DISTRIBUTION ===== -->
+<div id="pane-dist" class="tab-pane">
+  <div class="chart-section">
+    <div class="chart-title">Win Frequency</div>
+    <canvas id="c-winfreq" height="220"></canvas>
+  </div>
+  <div class="chart-section">
+    <div class="chart-title">RTP Distribution</div>
+    <canvas id="c-rtpdist" height="220"></canvas>
+  </div>
+</div>
+
+<!-- ===== SESSION OUTCOME ===== -->
+<div id="pane-session" class="tab-pane">
+  <div class="sim-bar">
+    <label>Spins per session:</label>
+    <input type="number" id="inp-session-spins" value="200" min="1" max="50000" style="width:85px">
+    <button id="btn-session" class="primary">Simulate</button>
+    <span id="session-count" style="color:var(--dim);font-size:12px"></span>
+  </div>
+  <canvas id="c-session" height="260"></canvas>
+</div>
+
+<!-- ===== ROE ===== -->
+<div id="pane-roe" class="tab-pane">
+  <div class="sim-bar">
+    <label>Starting bank (bets):</label>
+    <input type="number" id="inp-roe-bank" value="100" min="1" max="100000" style="width:85px">
+    <button id="btn-roe" class="primary">Simulate</button>
+    <span id="roe-count" style="color:var(--dim);font-size:12px"></span>
+  </div>
+  <div class="stats-row" id="roe-stats" style="display:none">
+    <div class="stat-box"><div class="stat-lbl">Mean spins to ruin</div><div class="stat-val" id="roe-mean">—</div></div>
+    <div class="stat-box"><div class="stat-lbl">Median spins to ruin</div><div class="stat-val" id="roe-median">—</div></div>
+  </div>
+  <canvas id="c-roe" height="260"></canvas>
+</div>
+
+<!-- ===== BANKROLL ===== -->
+<div id="pane-bankroll" class="tab-pane">
+  <div class="mode-bar">
+    <button id="br-mode-sim" class="active">Simulate</button>
+    <button id="br-mode-load">Load JSON</button>
+  </div>
+  <div id="br-panel-sim">
+    <div class="sim-bar">
+      <label>Players:</label>
+      <input type="number" id="inp-br-players" value="200" min="1" max="5000" style="width:75px">
+      <label>Bank (bets):</label>
+      <input type="number" id="inp-br-bank" value="100" min="1" max="100000" style="width:75px">
+      <button id="btn-br" class="primary">Simulate</button>
+      <span id="br-count" style="color:var(--dim);font-size:12px"></span>
+    </div>
+  </div>
+  <div id="br-panel-load" style="display:none">
+    <div class="sim-bar">
+      <input type="file" id="inp-br-file" accept=".json">
+    </div>
+  </div>
+  <canvas id="c-bankroll" height="320"></canvas>
+  <div class="legend" id="br-legend"></div>
+</div>
+
+<script>
+// ============================================================
+//  CONSTANTS & STATE
+// ============================================================
+const T = 20;
+
+let cfg = {
+  rows: [
+    { freq: 5,   payout: 10  },
+    { freq: 2,   payout: 25  },
+    { freq: 0.5, payout: 100 },
+  ],
+  lines: 10
+};
+
+let simLocked = false;   // config locked while sim running
+let activeWorker = null;
+
+// Per-tab data
+let sessionOutcomes = [];
+let roeSpins = [];
+let brPlayers = [];  // [{balances, color, endSpin}]
+
+const COLOR_RANGES = [
+  { range: [0,    150],  color: '#2ECC71', label: '0–150'    },
+  { range: [151,  300],  color: '#3498DB', label: '151–300'  },
+  { range: [301,  600],  color: '#9B59B6', label: '301–600'  },
+  { range: [601,  1000], color: '#F1C40F', label: '601–1000' },
+  { range: [1001, 1500], color: '#E74C3C', label: '1001–1500'},
+  { range: [1501, 2000], color: '#FF7675', label: '1501–2000'},
+  { range: [2001, Infinity], color: '#636E72', label: '2001+' },
+];
+let brActiveColors = new Set(COLOR_RANGES.map(c => c.color));
+
+// ============================================================
+//  CONFIG TAB
+// ============================================================
+function renderConfig() {
+  const tbody = document.getElementById('dist-tbody');
+  tbody.innerHTML = '';
+
+  // sort descending by freq
+  cfg.rows.sort((a, b) => b.freq - a.freq);
+
+  let freqSum = 0;
+  cfg.rows.forEach((row, i) => {
+    freqSum += row.freq;
+    const contrib = (row.freq * row.payout * cfg.lines / 100).toFixed(2);
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td><input type="number" class="fi" data-i="${i}" value="${row.freq}" min="0" max="100" step="0.01"${simLocked?' disabled':''}></td>` +
+      `<td><input type="number" class="pi" data-i="${i}" value="${row.payout}" min="0" step="0.01"${simLocked?' disabled':''}></td>` +
+      `<td class="rtp-col">${contrib}%</td>` +
+      `<td><button class="danger di" data-i="${i}"${simLocked?' disabled':''}>×</button></td>`;
+    tbody.appendChild(tr);
+  });
+
+  const nullFreq = 100 - freqSum;
+  const nullEl = document.getElementById('null-freq');
+  nullEl.textContent = nullFreq.toFixed(2) + '%';
+  nullEl.className = nullFreq < -0.001 ? 'freq-err' : '';
+
+  const rtp = cfg.rows.reduce((s, r) => s + r.freq * r.payout * cfg.lines / 100, 0);
+  const rtpEl = document.getElementById('rtp-val');
+  rtpEl.textContent = rtp.toFixed(2) + '%';
+  rtpEl.style.color = rtp > 100 ? 'var(--red)' : rtp > 97 ? 'var(--yellow)' : 'var(--green)';
+
+  // attach listeners
+  tbody.querySelectorAll('.fi').forEach(el => el.addEventListener('input', e => {
+    cfg.rows[+e.target.dataset.i].freq = parseFloat(e.target.value) || 0;
+    renderConfig();
+  }));
+  tbody.querySelectorAll('.pi').forEach(el => el.addEventListener('input', e => {
+    cfg.rows[+e.target.dataset.i].payout = parseFloat(e.target.value) || 0;
+    renderConfig();
+  }));
+  tbody.querySelectorAll('.di').forEach(el => el.addEventListener('click', e => {
+    cfg.rows.splice(+e.target.dataset.i, 1);
+    renderConfig();
+  }));
+
+  document.getElementById('btn-add-row').disabled = simLocked;
+  document.getElementById('btn-fit').disabled = simLocked;
+}
+
+document.getElementById('btn-add-row').addEventListener('click', () => {
+  cfg.rows.push({ freq: 1, payout: 1 });
+  renderConfig();
+});
+
+document.getElementById('sel-lines').addEventListener('change', e => {
+  cfg.lines = +e.target.value;
+  renderConfig();
+});
+
+document.getElementById('btn-fit').addEventListener('click', () => {
+  const rtp = cfg.rows.reduce((s, r) => s + r.freq * r.payout * cfg.lines / 100, 0);
+  if (rtp <= 0) { alert('Cannot fit: RTP is 0'); return; }
+  const scale = 96 / rtp;
+  const newFreqs = cfg.rows.map(r => r.freq * scale);
+  if (newFreqs.reduce((s, f) => s + f, 0) > 100.0001) {
+    alert('Cannot fit to 96%: total frequency would exceed 100%'); return;
+  }
+  cfg.rows.forEach((r, i) => r.freq = +newFreqs[i].toFixed(4));
+  renderConfig();
+});
+
+// ============================================================
+//  DISTRIBUTION TAB  (analytical)
+// ============================================================
+function computeLinePMF() {
+  const pmf = {};
+  let freqSum = 0;
+  for (const r of cfg.rows) {
+    freqSum += r.freq;
+    const v = r.payout;
+    pmf[v] = (pmf[v] || 0) + r.freq / 100;
+  }
+  const nullP = Math.max(0, (100 - freqSum) / 100);
+  pmf[0] = (pmf[0] || 0) + nullP;
+  return pmf;
+}
+
+function convolvePMF(a, b) {
+  const out = {};
+  for (const [va, pa] of Object.entries(a)) {
+    for (const [vb, pb] of Object.entries(b)) {
+      const v = +va + +vb;
+      out[v] = (out[v] || 0) + pa * pb;
+    }
+  }
+  return out;
+}
+
+// Bucket PMF values to multiples of `step` (for display only)
+function bucketPMF(pmf, step) {
+  const out = {};
+  for (const [v, p] of Object.entries(pmf)) {
+    const b = Math.floor(+v / step) * step;
+    out[b] = (out[b] || 0) + p;
+  }
+  return out;
+}
+
+function getSpinPMF() {
+  const line = computeLinePMF();
+  let pmf = line;
+  for (let i = 1; i < cfg.lines; i++) pmf = convolvePMF(pmf, line);
+  return pmf;
+}
+
+function percentilesFromPMF(pmf, pcts) {
+  const sorted = Object.entries(pmf).map(([v, p]) => [+v, p]).sort((a, b) => a[0] - b[0]);
+  const result = {};
+  let cum = 0;
+  let qi = 0;
+  const targets = [...pcts].sort((a, b) => a - b);
+  for (const [v, p] of sorted) {
+    cum += p;
+    while (qi < targets.length && cum >= targets[qi] / 100 - 1e-9) {
+      result[targets[qi]] = v;
+      qi++;
+    }
+    if (qi >= targets.length) break;
+  }
+  return result;
+}
+
+function renderDistribution() {
+  const pmf = getSpinPMF();
+  const step = 10;
+  const bPMF = bucketPMF(pmf, step);
+
+  // Win Frequency
+  const freqData = {};
+  for (const [v, p] of Object.entries(bPMF)) freqData[+v] = p * 100;
+  const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
+  drawBar('c-winfreq', freqData, { color: '#4a9eff', yLabel: '%', xLabel: 'Win (bets)', pcts });
+
+  // RTP Distribution: freq * win → rtp contribution per bucket
+  const rtpData = {};
+  for (const [v, p] of Object.entries(bPMF)) {
+    // sum of payout*prob in this bucket
+    rtpData[+v] = 0;
+  }
+  for (const [v, p] of Object.entries(pmf)) {
+    const b = Math.floor(+v / step) * step;
+    rtpData[b] = (rtpData[b] || 0) + p * +v * 100;
+  }
+  // percentiles by cumulative rtp weight
+  const rtpPcts = percentilesFromPMF(pmf, [10, 50, 90]);
+  drawBar('c-rtpdist', rtpData, { color: '#2ecc71', yLabel: 'RTP %', xLabel: 'Win (bets)', pcts: rtpPcts });
+}
+
+// ============================================================
+//  CANVAS DRAWING UTILITIES
+// ============================================================
+function setupCanvas(id) {
+  const c = document.getElementById(id);
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.offsetWidth || 700;
+  const h = parseInt(c.getAttribute('height')) || 220;
+  c.width = w * dpr;
+  c.height = h * dpr;
+  const ctx = c.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { ctx, w, h };
+}
+
+const PAD = { t: 28, r: 20, b: 44, l: 58 };
+
+function drawBar(id, data, opts) {
+  const { ctx, w, h } = setupCanvas(id);
+  const { color = '#4a9eff', xLabel = '', pcts = {} } = opts;
+  const pad = PAD;
+  const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const entries = Object.entries(data).map(([v, y]) => [+v, y]).sort((a, b) => a[0] - b[0]);
+  if (!entries.length) return;
+
+  const step = 10;
+  const minX = entries[0][0];
+  const maxX = entries[entries.length - 1][0];
+  const xSpan = maxX - minX + step;
+  const maxY = Math.max(...entries.map(e => e[1]), 1e-9);
+
+  const barW = Math.max(1, cw / (xSpan / step) - 1);
+
+  const toX = v => pad.l + (v - minX) / xSpan * cw;
+  const toY = v => pad.t + ch - (v / maxY) * ch;
+
+  // Grid lines
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 1;
+  const yTicks = 4;
+  ctx.font = '10px system-ui';
+  ctx.fillStyle = '#555';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= yTicks; i++) {
+    const v = maxY * i / yTicks;
+    const y = toY(v);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + cw, y); ctx.stroke();
+    ctx.fillText(v.toFixed(v < 1 ? 2 : 1), pad.l - 4, y + 3);
+  }
+
+  // Bars
+  ctx.fillStyle = color + 'bb';
+  for (const [v, y] of entries) {
+    if (y <= 0) continue;
+    const x = toX(v);
+    const bh = (y / maxY) * ch;
+    ctx.fillRect(x, toY(y), barW, bh);
+  }
+
+  // Percentile lines
+  const PCT_COLORS = { 10: '#f39c12', 50: '#e74c3c', 90: '#9b59b6' };
+  ctx.font = '10px system-ui';
+  for (const [pct, val] of Object.entries(pcts)) {
+    const x = toX(val) + barW / 2;
+    ctx.strokeStyle = PCT_COLORS[pct];
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + ch); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = PCT_COLORS[pct];
+    ctx.textAlign = 'center';
+    ctx.fillText('P' + pct, x, pad.t - 7);
+  }
+
+  // X axis ticks
+  ctx.fillStyle = '#555';
+  ctx.textAlign = 'center';
+  ctx.font = '10px system-ui';
+  const maxLabels = Math.floor(cw / 40);
+  const labelEvery = Math.max(step, Math.ceil(xSpan / maxLabels / step) * step);
+  for (let v = minX; v <= maxX; v += labelEvery) {
+    ctx.fillText(v, toX(v) + barW / 2, pad.t + ch + 14);
+  }
+
+  // Axis label
+  ctx.fillStyle = '#444';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(xLabel, pad.l + cw / 2, h - 3);
+}
+
+// Histogram from raw counts array
+function buildHistogram(values, step) {
+  const buckets = {};
+  for (const v of values) {
+    const b = Math.floor(v / step) * step;
+    buckets[b] = (buckets[b] || 0) + 1;
+  }
+  return buckets;
+}
+
+function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
+  const { ctx, w, h } = setupCanvas(id);
+  const { color = '#4a9eff', minX, xLabel = '', maxBucketLabel } = opts;
+  const pad = PAD;
+  const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const entries = Object.entries(buckets).map(([v, c]) => [+v, c]).sort((a, b) => a[0] - b[0]);
+  if (!entries.length) return;
+
+  const step = 10;
+  const eMinX = minX !== undefined ? minX : entries[0][0];
+  const eMaxX = entries[entries.length - 1][0];
+  const xSpan = eMaxX - eMinX + step;
+  const maxCount = Math.max(...entries.map(e => e[1]), 1);
+
+  const barW = Math.max(1, cw / (xSpan / step) - 0.5);
+  const toX = v => pad.l + (v - eMinX) / xSpan * cw;
+  const toY = v => pad.t + ch - (v / maxCount) * ch;
+
+  // Grid
+  ctx.strokeStyle = '#1e1e1e';
+  ctx.lineWidth = 1;
+  ctx.font = '10px system-ui';
+  ctx.fillStyle = '#555';
+  ctx.textAlign = 'right';
+  const yTicks = 4;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = maxCount * i / yTicks;
+    const y = toY(v);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + cw, y); ctx.stroke();
+    ctx.fillText(Math.round(v), pad.l - 4, y + 3);
+  }
+
+  // Bars
+  ctx.fillStyle = color + 'aa';
+  for (const [v, c] of entries) {
+    const x = toX(v);
+    const bh = (c / maxCount) * ch;
+    ctx.fillRect(x, toY(c), barW, bh);
+  }
+
+  // "max+" label on last bar if needed
+  if (maxBucketLabel) {
+    const [lastV] = entries[entries.length - 1];
+    ctx.fillStyle = '#888';
+    ctx.font = '9px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(maxBucketLabel, toX(lastV) + barW / 2, toY(0) + 11);
+  }
+
+  // Percentile lines
+  const PCT_COLORS = { 10: '#f39c12', 50: '#e74c3c', 90: '#9b59b6' };
+  ctx.font = '10px system-ui';
+  for (const [pct, val] of Object.entries(pcts)) {
+    const x = toX(val) + barW / 2;
+    ctx.strokeStyle = PCT_COLORS[pct];
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + ch); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = PCT_COLORS[pct];
+    ctx.textAlign = 'center';
+    ctx.fillText('P' + pct + '=' + val, x, pad.t - 7);
+  }
+
+  // X ticks
+  ctx.fillStyle = '#555';
+  ctx.textAlign = 'center';
+  ctx.font = '10px system-ui';
+  const maxLabels = Math.floor(cw / 40);
+  const labelEvery = Math.max(step, Math.ceil(xSpan / maxLabels / step) * step);
+  for (let v = Math.ceil(eMinX / step) * step; v <= eMaxX; v += labelEvery) {
+    ctx.fillText(v, toX(v) + barW / 2, pad.t + ch + 14);
+  }
+
+  ctx.fillStyle = '#444';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(xLabel, pad.l + cw / 2, h - 3);
+}
+
+// ============================================================
+//  WEB WORKER (inlined as blob)
+// ============================================================
+const WORKER_SRC = `
+const T = 20;
+let running = false;
+
+function spinWin(rows, lines) {
+  let total = 0;
+  const freqSum = rows.reduce((s, r) => s + r.freq, 0);
+  for (let l = 0; l < lines; l++) {
+    const rnd = Math.random() * 100;
+    let cum = 0, won = 0;
+    for (const row of rows) {
+      cum += row.freq;
+      if (rnd < cum) { won = row.payout; break; }
+    }
+    total += won;
+  }
+  return total;
+}
+
+self.onmessage = function(msg) {
+  const d = msg.data;
+  if (d.type === 'stop') { running = false; return; }
+
+  running = true;
+  const { task, rows, lines } = d;
+
+  // ---------- SESSION ----------
+  if (task === 'session') {
+    const { spins } = d;
+    const outcomes = [];
+    let batch = 0;
+    while (running) {
+      for (let s = 0; s < 100; s++) {
+        let w = 0;
+        for (let i = 0; i < spins; i++) w += spinWin(rows, lines);
+        outcomes.push(w - spins);
+      }
+      batch++;
+      if (batch % 5 === 0) self.postMessage({ type: 'progress', task, outcomes: outcomes.slice() });
+    }
+    self.postMessage({ type: 'progress', task, outcomes: outcomes.slice() });
+    self.postMessage({ type: 'done', task });
+    return;
+  }
+
+  // ---------- ROE ----------
+  if (task === 'roe') {
+    const { bank } = d;
+    const limit = bank * T;
+    const spinCounts = [];
+    let batch = 0;
+    while (running) {
+      for (let p = 0; p < 50; p++) {
+        let b = bank, n = 0;
+        while (b > 0 && n < limit) { b += spinWin(rows, lines) - 1; n++; }
+        spinCounts.push(n);
+      }
+      batch++;
+      if (batch % 4 === 0) self.postMessage({ type: 'progress', task, spinCounts: spinCounts.slice() });
+    }
+    self.postMessage({ type: 'progress', task, spinCounts: spinCounts.slice() });
+    self.postMessage({ type: 'done', task });
+    return;
+  }
+
+  // ---------- BANKROLL ----------
+  if (task === 'bankroll') {
+    const { bank, numPlayers } = d;
+    const limit = bank * T;
+    const players = [];
+    for (let p = 0; p < numPlayers && running; p++) {
+      let b = bank, n = 0;
+      const bal = [bank];
+      while (b > 0 && n < limit) {
+        b += spinWin(rows, lines) - 1;
+        n++;
+        bal.push(b <= 0 ? 0 : b);
+        if (b <= 0) break;
+      }
+      players.push(bal);
+      if ((p + 1) % 25 === 0 || p === numPlayers - 1) {
+        self.postMessage({ type: 'progress', task, players: players.map(x => x.slice()) });
+      }
+    }
+    self.postMessage({ type: 'done', task });
+    return;
+  }
+};
+`;
+
+function makeWorker() {
+  const blob = new Blob([WORKER_SRC], { type: 'application/javascript' });
+  return new Worker(URL.createObjectURL(blob));
+}
+
+function stopWorker() {
+  if (activeWorker) { activeWorker.postMessage({ type: 'stop' }); activeWorker = null; }
+}
+
+// ============================================================
+//  SESSION OUTCOME
+// ============================================================
+let sessionRunning = false;
+
+document.getElementById('btn-session').addEventListener('click', () => {
+  if (sessionRunning) {
+    stopWorker();
+    sessionRunning = false;
+    setSimLock(false);
+    const btn = document.getElementById('btn-session');
+    btn.textContent = 'Simulate'; btn.className = 'primary';
+  } else {
+    sessionOutcomes = [];
+    startSession();
+  }
+});
+
+function startSession() {
+  const spins = +document.getElementById('inp-session-spins').value;
+  sessionRunning = true;
+  setSimLock(true);
+  const btn = document.getElementById('btn-session');
+  btn.textContent = 'Stop'; btn.className = 'stop';
+
+  const w = makeWorker();
+  activeWorker = w;
+  w.onmessage = e => {
+    const d = e.data;
+    if (d.task !== 'session') return;
+    if (d.type === 'progress') {
+      sessionOutcomes = d.outcomes;
+      document.getElementById('session-count').textContent = sessionOutcomes.length + ' sessions';
+      drawSessionChart(spins);
+    }
+    if (d.type === 'done') {
+      sessionRunning = false;
+      setSimLock(false);
+      const b = document.getElementById('btn-session');
+      b.textContent = 'Simulate'; b.className = 'primary';
+    }
+  };
+  w.postMessage({ type: 'start', task: 'session', rows: cfg.rows, lines: cfg.lines, spins });
+}
+
+function drawSessionChart(spins) {
+  if (!sessionOutcomes.length) return;
+  const step = 10;
+  const minX = -spins;
+
+  // Determine max display bucket: fit into canvas width
+  const canvas = document.getElementById('c-session');
+  const cw = canvas.offsetWidth || 700;
+  const maxBars = Math.floor((cw - PAD.l - PAD.r) / 2); // ≥2px per bar
+  const maxRange = maxBars * step;
+  const maxDisplayX = minX + maxRange - step;
+
+  const buckets = {};
+  let overflowCount = 0;
+  for (const v of sessionOutcomes) {
+    const b = Math.floor(v / step) * step;
+    if (b > maxDisplayX) { overflowCount++; const ob = maxDisplayX + step; buckets[ob] = (buckets[ob] || 0) + 1; }
+    else if (b < minX) { buckets[minX] = (buckets[minX] || 0) + 1; }
+    else { buckets[b] = (buckets[b] || 0) + 1; }
+  }
+
+  // PMF for percentiles (unbucketed)
+  const pmf = {};
+  const tot = sessionOutcomes.length;
+  for (const v of sessionOutcomes) {
+    const b = Math.floor(v / step) * step;
+    pmf[b] = (pmf[b] || 0) + 1 / tot;
+  }
+  const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
+
+  drawHistogramCanvas('c-session', buckets, pcts, {
+    color: '#4a9eff', minX, xLabel: 'Session outcome (bets)',
+    maxBucketLabel: overflowCount > 0 ? 'max+' : null
+  });
+}
+
+// ============================================================
+//  ROE
+// ============================================================
+let roeRunning = false;
+
+document.getElementById('btn-roe').addEventListener('click', () => {
+  if (roeRunning) {
+    stopWorker(); roeRunning = false; setSimLock(false);
+    const b = document.getElementById('btn-roe'); b.textContent = 'Simulate'; b.className = 'primary';
+  } else {
+    roeSpins = [];
+    document.getElementById('roe-stats').style.display = 'none';
+    startROE();
+  }
+});
+
+function startROE() {
+  const bank = +document.getElementById('inp-roe-bank').value;
+  roeRunning = true;
+  setSimLock(true);
+  const btn = document.getElementById('btn-roe'); btn.textContent = 'Stop'; btn.className = 'stop';
+
+  const w = makeWorker();
+  activeWorker = w;
+  w.onmessage = e => {
+    const d = e.data;
+    if (d.task !== 'roe') return;
+    if (d.type === 'progress') {
+      roeSpins = d.spinCounts;
+      document.getElementById('roe-count').textContent = roeSpins.length + ' players';
+      updateROEStats();
+      drawROEChart();
+    }
+    if (d.type === 'done') {
+      roeRunning = false; setSimLock(false);
+      const b = document.getElementById('btn-roe'); b.textContent = 'Simulate'; b.className = 'primary';
+    }
+  };
+  w.postMessage({ type: 'start', task: 'roe', rows: cfg.rows, lines: cfg.lines, bank });
+}
+
+function updateROEStats() {
+  if (!roeSpins.length) return;
+  const sorted = [...roeSpins].sort((a, b) => a - b);
+  const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
+  const median = sorted[Math.floor(sorted.length / 2)];
+  document.getElementById('roe-mean').textContent = mean.toFixed(1);
+  document.getElementById('roe-median').textContent = median;
+  document.getElementById('roe-stats').style.display = 'flex';
+}
+
+function drawROEChart() {
+  if (!roeSpins.length) return;
+  const step = 10;
+  const buckets = buildHistogram(roeSpins, step);
+  const pmf = {};
+  const tot = roeSpins.length;
+  for (const v of roeSpins) { const b = Math.floor(v / step) * step; pmf[b] = (pmf[b] || 0) + 1 / tot; }
+  const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
+  drawHistogramCanvas('c-roe', buckets, pcts, { color: '#e74c3c', minX: 0, xLabel: 'Spins to ruin' });
+}
+
+// ============================================================
+//  BANKROLL
+// ============================================================
+let brRunning = false;
+let brMode = 'sim';
+
+document.getElementById('br-mode-sim').addEventListener('click', () => setBRMode('sim'));
+document.getElementById('br-mode-load').addEventListener('click', () => setBRMode('load'));
+
+function setBRMode(mode) {
+  brMode = mode;
+  document.getElementById('br-mode-sim').classList.toggle('active', mode === 'sim');
+  document.getElementById('br-mode-load').classList.toggle('active', mode === 'load');
+  document.getElementById('br-panel-sim').style.display = mode === 'sim' ? '' : 'none';
+  document.getElementById('br-panel-load').style.display = mode === 'load' ? '' : 'none';
+}
+
+document.getElementById('btn-br').addEventListener('click', () => {
+  if (brRunning) {
+    stopWorker(); brRunning = false; setSimLock(false);
+    const b = document.getElementById('btn-br'); b.textContent = 'Simulate'; b.className = 'primary';
+  } else {
+    brPlayers = [];
+    startBankroll();
+  }
+});
+
+function startBankroll() {
+  const bank = +document.getElementById('inp-br-bank').value;
+  const numPlayers = +document.getElementById('inp-br-players').value;
+  brRunning = true;
+  setSimLock(true);
+  const btn = document.getElementById('btn-br'); btn.textContent = 'Stop'; btn.className = 'stop';
+
+  const w = makeWorker();
+  activeWorker = w;
+  w.onmessage = e => {
+    const d = e.data;
+    if (d.task !== 'bankroll') return;
+    if (d.type === 'progress') {
+      brPlayers = d.players.map(bal => {
+        const endSpin = bal.length - 1;
+        const cr = COLOR_RANGES.find(c => endSpin >= c.range[0] && endSpin <= c.range[1]) || COLOR_RANGES[COLOR_RANGES.length - 1];
+        return { bal, color: cr.color, endSpin };
+      });
+      document.getElementById('br-count').textContent = brPlayers.length + ' players';
+      drawBankrollChart();
+      drawBRLegend();
+    }
+    if (d.type === 'done') {
+      brRunning = false; setSimLock(false);
+      const b = document.getElementById('btn-br'); b.textContent = 'Simulate'; b.className = 'primary';
+    }
+  };
+  w.postMessage({ type: 'start', task: 'bankroll', rows: cfg.rows, lines: cfg.lines, bank, numPlayers });
+}
+
+document.getElementById('inp-br-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      brPlayers = data.map(bal => {
+        const endSpin = bal.length - 1;
+        const cr = COLOR_RANGES.find(c => endSpin >= c.range[0] && endSpin <= c.range[1]) || COLOR_RANGES[COLOR_RANGES.length - 1];
+        return { bal, color: cr.color, endSpin };
+      });
+      drawBankrollChart();
+      drawBRLegend();
+    } catch { alert('Invalid JSON'); }
+  };
+  reader.readAsText(file);
+});
+
+function drawBankrollChart() {
+  if (!brPlayers.length) return;
+  const { ctx, w, h } = setupCanvas('c-bankroll');
+  const pad = { t: 20, r: 20, b: 44, l: 60 };
+  const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const maxSpins = Math.max(...brPlayers.map(p => p.bal.length - 1));
+  const maxBal = Math.max(...brPlayers.flatMap(p => p.bal), 1);
+
+  const toX = i => pad.l + (i / maxSpins) * cw;
+  const toY = v => pad.t + ch - (Math.max(0, v) / maxBal) * ch;
+
+  // Grid
+  ctx.strokeStyle = '#1e1e1e';
+  ctx.lineWidth = 1;
+  const yTicks = 4;
+  for (let i = 0; i <= yTicks; i++) {
+    const y = toY(maxBal * i / yTicks);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + cw, y); ctx.stroke();
+  }
+
+  // Curves
+  ctx.lineWidth = 0.7;
+  for (const p of brPlayers) {
+    if (!brActiveColors.has(p.color)) continue;
+    ctx.strokeStyle = p.color + '50';
+    ctx.beginPath();
+    p.bal.forEach((b, i) => {
+      if (i === 0) ctx.moveTo(toX(i), toY(b));
+      else ctx.lineTo(toX(i), toY(b));
+    });
+    ctx.stroke();
+  }
+
+  // Y labels
+  ctx.fillStyle = '#555';
+  ctx.font = '10px system-ui';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= yTicks; i++) {
+    const v = maxBal * i / yTicks;
+    ctx.fillText(Math.round(v), pad.l - 4, toY(v) + 3);
+  }
+
+  // X labels
+  ctx.textAlign = 'center';
+  const xTicks = 6;
+  for (let i = 0; i <= xTicks; i++) {
+    const v = Math.round(maxSpins * i / xTicks);
+    ctx.fillText(v, toX(v), pad.t + ch + 14);
+  }
+
+  ctx.fillStyle = '#444';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('Spins', pad.l + cw / 2, h - 3);
+}
+
+function drawBRLegend() {
+  const container = document.getElementById('br-legend');
+  container.innerHTML = '';
+  const total = brPlayers.length;
+  const counts = {};
+  COLOR_RANGES.forEach(c => counts[c.color] = 0);
+  brPlayers.forEach(p => { if (p.color in counts) counts[p.color]++; });
+
+  COLOR_RANGES.forEach(c => {
+    const cnt = counts[c.color] || 0;
+    const pct = total ? ((cnt / total) * 100).toFixed(1) : '0.0';
+    const item = document.createElement('div');
+    item.className = 'legend-item' + (brActiveColors.has(c.color) ? '' : ' off');
+    item.innerHTML = `<div class="legend-dot" style="background:${c.color}"></div><span>${c.label}: ${pct}%</span>`;
+    item.addEventListener('click', () => {
+      if (brActiveColors.has(c.color)) brActiveColors.delete(c.color);
+      else brActiveColors.add(c.color);
+      item.classList.toggle('off');
+      drawBankrollChart();
+    });
+    container.appendChild(item);
+  });
+}
+
+// ============================================================
+//  CONFIG LOCK
+// ============================================================
+function setSimLock(lock) {
+  simLocked = lock;
+  renderConfig();
+  document.getElementById('sel-lines').disabled = lock;
+}
+
+// ============================================================
+//  TABS
+// ============================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    // Stop any running simulation
+    if (sessionRunning || roeRunning || brRunning) {
+      stopWorker();
+      sessionRunning = roeRunning = brRunning = false;
+      setSimLock(false);
+      ['btn-session','btn-roe','btn-br'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b) { b.textContent = 'Simulate'; b.className = 'primary'; }
+      });
+    }
+
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('pane-' + tab).classList.add('active');
+
+    if (tab === 'dist') renderDistribution();
+  });
+});
+
+// ============================================================
+//  RESIZE
+// ============================================================
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    const active = document.querySelector('.tab-pane.active');
+    if (!active) return;
+    const tab = active.id.replace('pane-', '');
+    if (tab === 'dist') renderDistribution();
+    if (tab === 'session' && sessionOutcomes.length) drawSessionChart(+document.getElementById('inp-session-spins').value);
+    if (tab === 'roe' && roeSpins.length) drawROEChart();
+    if (tab === 'bankroll' && brPlayers.length) drawBankrollChart();
+  }, 150);
+});
+
+// ============================================================
+//  INIT
+// ============================================================
+renderConfig();
+</script>
+</body>
+</html>
