@@ -121,6 +121,7 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
       </table>
       <div class="table-btns">
         <button id="btn-add-row">+ Add row</button>
+        <button id="btn-sort-rows">Sort ↑ freq</button>
       </div>
     </div>
     <div class="cfg-side">
@@ -244,9 +245,6 @@ function renderConfig() {
   const tbody = document.getElementById('dist-tbody');
   tbody.innerHTML = '';
 
-  // sort descending by freq
-  cfg.rows.sort((a, b) => b.freq - a.freq);
-
   let freqSum = 0;
   cfg.rows.forEach((row, i) => {
     freqSum += row.freq;
@@ -290,6 +288,11 @@ function renderConfig() {
 
 document.getElementById('btn-add-row').addEventListener('click', () => {
   cfg.rows.push({ freq: 1, payout: 1 });
+  renderConfig();
+});
+
+document.getElementById('btn-sort-rows').addEventListener('click', () => {
+  cfg.rows.sort((a, b) => a.freq - b.freq);
   renderConfig();
 });
 
@@ -375,26 +378,26 @@ function renderDistribution() {
   const pmf = getSpinPMF();
   const step = 10;
   const bPMF = bucketPMF(pmf, step);
+  const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
 
   // Win Frequency
   const freqData = {};
-  for (const [v, p] of Object.entries(bPMF)) freqData[+v] = p * 100;
-  const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
-  drawBar('c-winfreq', freqData, { color: '#4a9eff', yLabel: '%', xLabel: 'Win (bets)', pcts });
+  for (const [v, p] of Object.entries(bPMF)) if (p > 0) freqData[+v] = p * 100;
 
-  // RTP Distribution: freq * win → rtp contribution per bucket
+  // RTP Distribution: freq * win per bucket (skip win=0 bucket since contrib=0)
   const rtpData = {};
-  for (const [v, p] of Object.entries(bPMF)) {
-    // sum of payout*prob in this bucket
-    rtpData[+v] = 0;
-  }
   for (const [v, p] of Object.entries(pmf)) {
+    if (+v === 0) continue;
     const b = Math.floor(+v / step) * step;
     rtpData[b] = (rtpData[b] || 0) + p * +v * 100;
   }
-  // percentiles by cumulative rtp weight
-  const rtpPcts = percentilesFromPMF(pmf, [10, 50, 90]);
-  drawBar('c-rtpdist', rtpData, { color: '#2ecc71', yLabel: 'RTP %', xLabel: 'Win (bets)', pcts: rtpPcts });
+
+  // Shared X range across both charts (non-zero entries)
+  const allKeys = [...Object.keys(freqData), ...Object.keys(rtpData)].map(Number).filter(v => v > 0);
+  const sharedMax = allKeys.length ? Math.max(...allKeys) : step;
+
+  drawBar('c-winfreq', freqData, { color: '#4a9eff', xLabel: 'Win (bets)', pcts, forceMinX: 0, forceMaxX: sharedMax });
+  drawBar('c-rtpdist', rtpData, { color: '#2ecc71', xLabel: 'Win (bets)', pcts, forceMinX: 0, forceMaxX: sharedMax });
 }
 
 // ============================================================
@@ -416,7 +419,7 @@ const PAD = { t: 28, r: 20, b: 44, l: 58 };
 
 function drawBar(id, data, opts) {
   const { ctx, w, h } = setupCanvas(id);
-  const { color = '#4a9eff', xLabel = '', pcts = {} } = opts;
+  const { color = '#4a9eff', xLabel = '', pcts = {}, forceMinX, forceMaxX } = opts;
   const pad = PAD;
   const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
 
@@ -425,9 +428,13 @@ function drawBar(id, data, opts) {
   const entries = Object.entries(data).map(([v, y]) => [+v, y]).sort((a, b) => a[0] - b[0]);
   if (!entries.length) return;
 
+  // Use only non-zero entries to determine X range (no zero tails)
+  const nonZero = entries.filter(([, y]) => y > 0);
+  if (!nonZero.length) return;
+
   const step = 10;
-  const minX = entries[0][0];
-  const maxX = entries[entries.length - 1][0];
+  const minX = forceMinX !== undefined ? forceMinX : nonZero[0][0];
+  const maxX = forceMaxX !== undefined ? forceMaxX : nonZero[nonZero.length - 1][0];
   const xSpan = maxX - minX + step;
   const maxY = Math.max(...entries.map(e => e[1]), 1e-9);
 
@@ -503,7 +510,7 @@ function buildHistogram(values, step) {
 
 function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
   const { ctx, w, h } = setupCanvas(id);
-  const { color = '#4a9eff', minX, xLabel = '', maxBucketLabel } = opts;
+  const { color = '#4a9eff', xLabel = '' } = opts;
   const pad = PAD;
   const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
 
@@ -513,7 +520,7 @@ function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
   if (!entries.length) return;
 
   const step = 10;
-  const eMinX = minX !== undefined ? minX : entries[0][0];
+  const eMinX = entries[0][0];
   const eMaxX = entries[entries.length - 1][0];
   const xSpan = eMaxX - eMinX + step;
   const maxCount = Math.max(...entries.map(e => e[1]), 1);
@@ -542,15 +549,6 @@ function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
     const x = toX(v);
     const bh = (c / maxCount) * ch;
     ctx.fillRect(x, toY(c), barW, bh);
-  }
-
-  // "max+" label on last bar if needed
-  if (maxBucketLabel) {
-    const [lastV] = entries[entries.length - 1];
-    ctx.fillStyle = '#888';
-    ctx.font = '9px system-ui';
-    ctx.textAlign = 'center';
-    ctx.fillText(maxBucketLabel, toX(lastV) + barW / 2, toY(0) + 11);
   }
 
   // Percentile lines
@@ -590,10 +588,10 @@ function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
 const WORKER_SRC = `
 const T = 20;
 let running = false;
+let st = null; // task state
 
 function spinWin(rows, lines) {
   let total = 0;
-  const freqSum = rows.reduce((s, r) => s + r.freq, 0);
   for (let l = 0; l < lines; l++) {
     const rnd = Math.random() * 100;
     let cum = 0, won = 0;
@@ -606,74 +604,61 @@ function spinWin(rows, lines) {
   return total;
 }
 
-self.onmessage = function(msg) {
-  const d = msg.data;
-  if (d.type === 'stop') { running = false; return; }
+function runBatch() {
+  if (!running || !st) return;
 
-  running = true;
-  const { task, rows, lines } = d;
-
-  // ---------- SESSION ----------
-  if (task === 'session') {
-    const { spins } = d;
-    const outcomes = [];
-    let batch = 0;
-    while (running) {
-      for (let s = 0; s < 100; s++) {
-        let w = 0;
-        for (let i = 0; i < spins; i++) w += spinWin(rows, lines);
-        outcomes.push(w - spins);
-      }
-      batch++;
-      if (batch % 5 === 0) self.postMessage({ type: 'progress', task, outcomes: outcomes.slice() });
+  if (st.task === 'session') {
+    for (let i = 0; i < 200; i++) {
+      let w = 0;
+      for (let j = 0; j < st.spins; j++) w += spinWin(st.rows, st.lines);
+      st.outcomes.push(w - st.spins);
     }
-    self.postMessage({ type: 'progress', task, outcomes: outcomes.slice() });
-    self.postMessage({ type: 'done', task });
+    self.postMessage({ type: 'progress', task: 'session', outcomes: st.outcomes.slice() });
+    if (running) setTimeout(runBatch, 0); else self.postMessage({ type: 'done', task: 'session' });
     return;
   }
 
-  // ---------- ROE ----------
-  if (task === 'roe') {
-    const { bank } = d;
-    const limit = bank * T;
-    const spinCounts = [];
-    let batch = 0;
-    while (running) {
-      for (let p = 0; p < 50; p++) {
-        let b = bank, n = 0;
-        while (b > 0 && n < limit) { b += spinWin(rows, lines) - 1; n++; }
-        spinCounts.push(n);
-      }
-      batch++;
-      if (batch % 4 === 0) self.postMessage({ type: 'progress', task, spinCounts: spinCounts.slice() });
+  if (st.task === 'roe') {
+    for (let i = 0; i < 50; i++) {
+      let b = st.bank, n = 0;
+      while (b > 0 && n < st.limit) { b += spinWin(st.rows, st.lines) - 1; n++; }
+      st.spinCounts.push(n);
     }
-    self.postMessage({ type: 'progress', task, spinCounts: spinCounts.slice() });
-    self.postMessage({ type: 'done', task });
+    self.postMessage({ type: 'progress', task: 'roe', spinCounts: st.spinCounts.slice() });
+    if (running) setTimeout(runBatch, 0); else self.postMessage({ type: 'done', task: 'roe' });
     return;
   }
 
-  // ---------- BANKROLL ----------
-  if (task === 'bankroll') {
-    const { bank, numPlayers } = d;
-    const limit = bank * T;
-    const players = [];
-    for (let p = 0; p < numPlayers && running; p++) {
-      let b = bank, n = 0;
-      const bal = [bank];
-      while (b > 0 && n < limit) {
-        b += spinWin(rows, lines) - 1;
-        n++;
+  if (st.task === 'bankroll') {
+    const batch = Math.min(25, st.numPlayers - st.players.length);
+    for (let i = 0; i < batch; i++) {
+      let b = st.bank, n = 0;
+      const bal = [st.bank];
+      while (b > 0 && n < st.limit) {
+        b += spinWin(st.rows, st.lines) - 1; n++;
         bal.push(b <= 0 ? 0 : b);
         if (b <= 0) break;
       }
-      players.push(bal);
-      if ((p + 1) % 25 === 0 || p === numPlayers - 1) {
-        self.postMessage({ type: 'progress', task, players: players.map(x => x.slice()) });
-      }
+      st.players.push(bal);
     }
-    self.postMessage({ type: 'done', task });
+    self.postMessage({ type: 'progress', task: 'bankroll', players: st.players.map(x => x.slice()) });
+    if (st.players.length >= st.numPlayers || !running) {
+      self.postMessage({ type: 'done', task: 'bankroll' });
+    } else {
+      setTimeout(runBatch, 0);
+    }
     return;
   }
+}
+
+self.onmessage = function(msg) {
+  const d = msg.data;
+  if (d.type === 'stop') { running = false; st = null; return; }
+  running = true;
+  st = { task: d.task, rows: d.rows, lines: d.lines,
+         spins: d.spins, bank: d.bank, limit: d.bank ? d.bank * T : 0,
+         numPlayers: d.numPlayers, outcomes: [], spinCounts: [], players: [] };
+  setTimeout(runBatch, 0);
 };
 `;
 
@@ -683,7 +668,7 @@ function makeWorker() {
 }
 
 function stopWorker() {
-  if (activeWorker) { activeWorker.postMessage({ type: 'stop' }); activeWorker = null; }
+  if (activeWorker) { activeWorker.terminate(); activeWorker = null; }
 }
 
 // ============================================================
@@ -719,7 +704,7 @@ function startSession() {
     if (d.type === 'progress') {
       sessionOutcomes = d.outcomes;
       document.getElementById('session-count').textContent = sessionOutcomes.length + ' sessions';
-      drawSessionChart(spins);
+      drawSessionChart();
     }
     if (d.type === 'done') {
       sessionRunning = false;
@@ -731,40 +716,15 @@ function startSession() {
   w.postMessage({ type: 'start', task: 'session', rows: cfg.rows, lines: cfg.lines, spins });
 }
 
-function drawSessionChart(spins) {
+function drawSessionChart() {
   if (!sessionOutcomes.length) return;
   const step = 10;
-  const minX = -spins;
-
-  // Determine max display bucket: fit into canvas width
-  const canvas = document.getElementById('c-session');
-  const cw = canvas.offsetWidth || 700;
-  const maxBars = Math.floor((cw - PAD.l - PAD.r) / 2); // ≥2px per bar
-  const maxRange = maxBars * step;
-  const maxDisplayX = minX + maxRange - step;
-
-  const buckets = {};
-  let overflowCount = 0;
-  for (const v of sessionOutcomes) {
-    const b = Math.floor(v / step) * step;
-    if (b > maxDisplayX) { overflowCount++; const ob = maxDisplayX + step; buckets[ob] = (buckets[ob] || 0) + 1; }
-    else if (b < minX) { buckets[minX] = (buckets[minX] || 0) + 1; }
-    else { buckets[b] = (buckets[b] || 0) + 1; }
-  }
-
-  // PMF for percentiles (unbucketed)
+  const buckets = buildHistogram(sessionOutcomes, step);
   const pmf = {};
   const tot = sessionOutcomes.length;
-  for (const v of sessionOutcomes) {
-    const b = Math.floor(v / step) * step;
-    pmf[b] = (pmf[b] || 0) + 1 / tot;
-  }
+  for (const v of sessionOutcomes) { const b = Math.floor(v / step) * step; pmf[b] = (pmf[b] || 0) + 1 / tot; }
   const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
-
-  drawHistogramCanvas('c-session', buckets, pcts, {
-    color: '#4a9eff', minX, xLabel: 'Session outcome (bets)',
-    maxBucketLabel: overflowCount > 0 ? 'max+' : null
-  });
+  drawHistogramCanvas('c-session', buckets, pcts, { color: '#4a9eff', xLabel: 'Session outcome (bets)' });
 }
 
 // ============================================================
@@ -826,7 +786,7 @@ function drawROEChart() {
   const tot = roeSpins.length;
   for (const v of roeSpins) { const b = Math.floor(v / step) * step; pmf[b] = (pmf[b] || 0) + 1 / tot; }
   const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
-  drawHistogramCanvas('c-roe', buckets, pcts, { color: '#e74c3c', minX: 0, xLabel: 'Spins to ruin' });
+  drawHistogramCanvas('c-roe', buckets, pcts, { color: '#e74c3c', xLabel: 'Spins to ruin' });
 }
 
 // ============================================================
@@ -1034,7 +994,7 @@ window.addEventListener('resize', () => {
     if (!active) return;
     const tab = active.id.replace('pane-', '');
     if (tab === 'dist') renderDistribution();
-    if (tab === 'session' && sessionOutcomes.length) drawSessionChart(+document.getElementById('inp-session-spins').value);
+    if (tab === 'session' && sessionOutcomes.length) drawSessionChart();
     if (tab === 'roe' && roeSpins.length) drawROEChart();
     if (tab === 'bankroll' && brPlayers.length) drawBankrollChart();
   }, 150);
