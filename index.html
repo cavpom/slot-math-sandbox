@@ -103,6 +103,22 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
   white-space: pre; line-height: 1.5;
 }
 
+/* ---- Help toggle ---- */
+.btn-help {
+  width: 20px; height: 20px; border-radius: 50%; padding: 0;
+  font-size: 11px; font-weight: 700; color: #999;
+  line-height: 20px; text-align: center; margin-bottom: 6px;
+}
+.btn-help.active { color: var(--accent); border-color: var(--accent); }
+
+/* ---- Histogram tooltip ---- */
+#hist-tooltip {
+  position: fixed; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 7px 10px; font-size: 11px; color: var(--text);
+  pointer-events: none; display: none; z-index: 1000; line-height: 1.8;
+  white-space: nowrap;
+}
+
 /* ---- Credit ---- */
 .claude-credit {
   position: fixed; bottom: 10px; left: 14px;
@@ -124,7 +140,8 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== CONFIG ===== -->
 <div id="pane-config" class="tab-pane active">
-  <div class="help-block">
+  <button class="btn-help">?</button>
+  <div class="help-block" style="display:none">
     <b>Config</b><br>
     Define outcome distribution per line.<br><br>
     <b>Freq (%)</b> — probability of each payout on a single line.<br>
@@ -168,9 +185,9 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
         <label>Preset:</label>
         <select id="sel-preset">
           <option value="">— select —</option>
-          <option value="classic3x3">Classic 3x3</option>
           <option value="candyVolatility">Candy Volatility</option>
           <option value="dryDesert">Dry Desert</option>
+          <option value="classic3x3">Classic 3x3</option>
         </select>
       </div>
       <div>
@@ -188,18 +205,30 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== DISTRIBUTION ===== -->
 <div id="pane-dist" class="tab-pane">
-  <div class="help-block">
+  <button class="btn-help">?</button>
+  <div class="help-block" style="display:none">
     <b>Distribution</b><br>
     Analytical distribution of outcomes per spin.<br><br>
     <b>Win Frequency</b> — probability of total win values.<br>
     <b>RTP Distribution</b> — contribution of each win bucket to total RTP.<br><br>
-    Based on exact convolution of line distributions — not simulation.
+    Based on exact convolution of line distributions — not simulation.<br><br>
+    Custom JSON format:<pre>[10, 0, 0, 25, 0, 10, ...]</pre>
+    Array of individual spin win values (in bets).
+  </div>
+  <div class="mode-bar">
+    <button id="dist-mode-calc" class="active">Analytical</button>
+    <button id="dist-mode-load">Load JSON</button>
+  </div>
+  <div id="dist-panel-load" style="display:none">
+    <div class="sim-bar">
+      <input type="file" id="inp-dist-file" accept=".json">
+    </div>
   </div>
   <div class="chart-section">
     <div class="chart-title">Win Frequency</div>
     <canvas id="c-winfreq" height="220"></canvas>
   </div>
-  <div class="chart-section">
+  <div class="chart-section" id="dist-rtpdist-section">
     <div class="chart-title">RTP Distribution</div>
     <canvas id="c-rtpdist" height="220"></canvas>
   </div>
@@ -207,36 +236,64 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== SESSION OUTCOME ===== -->
 <div id="pane-session" class="tab-pane">
-  <div class="help-block">
+  <button class="btn-help">?</button>
+  <div class="help-block" style="display:none">
     <b>Session Outcome</b><br>
     Simulates player results over a fixed number of spins.<br><br>
     Each session: <b>balance = total win − total bet</b><br><br>
     Shows distribution of outcomes after N spins.<br>
-    Useful to understand real player experience vs theoretical RTP.
+    Useful to understand real player experience vs theoretical RTP.<br><br>
+    Custom JSON format:<pre>[-50, 20, -100, 15, ...]</pre>
+    Array of session net outcomes (win − bet, in bets).
   </div>
-  <div class="sim-bar">
-    <label>Spins per session:</label>
-    <input type="number" id="inp-session-spins" value="200" min="1" max="50000" style="width:85px">
-    <button id="btn-session" class="primary">Simulate</button>
-    <span id="session-count" style="color:var(--dim);font-size:12px"></span>
+  <div class="mode-bar">
+    <button id="sess-mode-sim" class="active">Simulate</button>
+    <button id="sess-mode-load">Load JSON</button>
+  </div>
+  <div id="sess-panel-sim">
+    <div class="sim-bar">
+      <label>Spins per session:</label>
+      <input type="number" id="inp-session-spins" value="200" min="1" max="50000" style="width:85px">
+      <button id="btn-session" class="primary">Simulate</button>
+      <span id="session-count" style="color:var(--dim);font-size:12px"></span>
+    </div>
+  </div>
+  <div id="sess-panel-load" style="display:none">
+    <div class="sim-bar">
+      <input type="file" id="inp-sess-file" accept=".json">
+    </div>
   </div>
   <canvas id="c-session" height="260"></canvas>
 </div>
 
 <!-- ===== ROE ===== -->
 <div id="pane-roe" class="tab-pane">
-  <div class="help-block">
+  <button class="btn-help">?</button>
+  <div class="help-block" style="display:none">
     <b>ROE — Risk of Ruin</b><br>
     Probability of a player running out of balance within a limited number of spins.<br><br>
     <b>ROE</b> = % of players who reach zero before the spin limit (bank × 20).<br><br>
     Mean and median are calculated only for ruined players.<br>
-    Players who survive to the limit are treated as censored — excluded from histogram.
+    Players who survive to the limit are treated as censored — excluded from histogram.<br><br>
+    Custom JSON format:<pre>{ "bankrupt": [45, 120, 88, ...], "total": 1000 }</pre>
+    Or just an array of spins-to-ruin (ROE treated as 100%).
   </div>
-  <div class="sim-bar">
-    <label>Starting bank (bets):</label>
-    <input type="number" id="inp-roe-bank" value="100" min="1" max="100000" style="width:85px">
-    <button id="btn-roe" class="primary">Simulate</button>
-    <span id="roe-count" style="color:var(--dim);font-size:12px"></span>
+  <div class="mode-bar">
+    <button id="roe-mode-sim" class="active">Simulate</button>
+    <button id="roe-mode-load">Load JSON</button>
+  </div>
+  <div id="roe-panel-sim">
+    <div class="sim-bar">
+      <label>Starting bank (bets):</label>
+      <input type="number" id="inp-roe-bank" value="100" min="1" max="100000" style="width:85px">
+      <button id="btn-roe" class="primary">Simulate</button>
+      <span id="roe-count" style="color:var(--dim);font-size:12px"></span>
+    </div>
+  </div>
+  <div id="roe-panel-load" style="display:none">
+    <div class="sim-bar">
+      <input type="file" id="inp-roe-file" accept=".json">
+    </div>
   </div>
   <div class="stats-row" id="roe-stats" style="display:none">
     <div class="stat-box"><div class="stat-lbl">ROE</div><div class="stat-val" id="roe-pct">—</div></div>
@@ -248,7 +305,8 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== BANKROLL ===== -->
 <div id="pane-bankroll" class="tab-pane">
-  <div class="help-block">
+  <button class="btn-help">?</button>
+  <div class="help-block" style="display:none">
     <b>Bankroll</b><br>
     Simulates balance trajectories for multiple players.<br><br>
     Each line = one player's balance over time.<br>
@@ -304,6 +362,12 @@ let sessionOutcomes = [];
 let roeSpins = [];   // only bankrupt players
 let roeTotal = 0;    // all simulated players (bankrupt + survived)
 let brPlayers = [];  // [{balances, color, endSpin}]
+
+// Tab modes
+let distMode = 'calc';
+let distLoadedData = null;
+let sessMode = 'sim';
+let roeMode = 'sim';
 
 const COLOR_RANGES = [
   { range: [0,    150],  color: '#2ECC71', label: '0–150'    },
@@ -521,6 +585,11 @@ function percentilesFromPMF(pmf, pcts) {
 const DIST_CAP = 2000;
 
 function renderDistribution() {
+  if (distMode === 'load') {
+    if (distLoadedData) renderDistributionLoaded();
+    return;
+  }
+  document.getElementById('dist-rtpdist-section').style.display = '';
   const pmf = getSpinPMF();
   const step = 10;
   const bPMF = bucketPMF(pmf, step);
@@ -552,9 +621,96 @@ function renderDistribution() {
   drawBar('c-rtpdist', rtpData, { color: '#2ecc71', xLabel: 'Win (bets)', pcts, forceMinX: 0, forceMaxX: sharedMax, capX });
 }
 
+function renderDistributionLoaded() {
+  const step = 10;
+  const buckets = buildHistogram(distLoadedData, step);
+  const pmf = {};
+  const tot = distLoadedData.length;
+  for (const v of distLoadedData) { const b = Math.floor(v / step) * step; pmf[b] = (pmf[b] || 0) + 1 / tot; }
+  const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
+  drawHistogramCanvas('c-winfreq', buckets, pcts, { color: '#4a9eff', xLabel: 'Win (bets)' });
+}
+
+document.getElementById('dist-mode-calc').addEventListener('click', () => {
+  distMode = 'calc'; distLoadedData = null;
+  document.getElementById('dist-mode-calc').classList.add('active');
+  document.getElementById('dist-mode-load').classList.remove('active');
+  document.getElementById('dist-panel-load').style.display = 'none';
+  renderDistribution();
+});
+
+document.getElementById('dist-mode-load').addEventListener('click', () => {
+  distMode = 'load';
+  document.getElementById('dist-mode-calc').classList.remove('active');
+  document.getElementById('dist-mode-load').classList.add('active');
+  document.getElementById('dist-panel-load').style.display = '';
+  document.getElementById('dist-rtpdist-section').style.display = 'none';
+  if (distLoadedData) renderDistributionLoaded();
+});
+
+document.getElementById('inp-dist-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!Array.isArray(data)) throw new Error();
+      distLoadedData = data;
+      renderDistributionLoaded();
+    } catch { alert('Invalid JSON: expected array of numbers'); }
+  };
+  reader.readAsText(file);
+});
+
 // ============================================================
 //  CANVAS DRAWING UTILITIES
 // ============================================================
+function hideHistTooltip() {
+  document.getElementById('hist-tooltip').style.display = 'none';
+}
+
+function attachHistTooltip(canvasEl) {
+  if (canvasEl._histMouseMove) {
+    canvasEl.removeEventListener('mousemove', canvasEl._histMouseMove);
+    canvasEl.removeEventListener('mouseleave', canvasEl._histMouseLeave);
+  }
+  canvasEl._histMouseMove = function(e) {
+    const meta = canvasEl._histMeta;
+    if (!meta) return hideHistTooltip();
+    const rect = canvasEl.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const { entries, step, eMinX, xSpan, pad, isAnalytical } = meta;
+    const cw = rect.width - pad.l - pad.r;
+    const toX = v => pad.l + (v - eMinX) / xSpan * cw;
+    const barW = Math.max(1, cw / (xSpan / step) - (isAnalytical ? 1 : 0.5));
+    const tt = document.getElementById('hist-tooltip');
+    for (const d of entries) {
+      const bx = toX(d.v);
+      if (mx >= bx && mx <= bx + barW) {
+        const pLt = d.pBefore;
+        const pGte = 1 - pLt;
+        const countLine = isAnalytical
+          ? `Probability: ${d.y.toFixed(3)}%`
+          : `Count: ${d.c.toLocaleString()}`;
+        tt.innerHTML =
+          `<b>${d.v}–${d.v + step - 1}</b><br>` +
+          `${countLine}<br>` +
+          `P(&lt;${d.v}) = ${(pLt * 100).toFixed(2)}%<br>` +
+          `P(≥${d.v}) = ${(pGte * 100).toFixed(2)}%`;
+        tt.style.display = 'block';
+        tt.style.left = (e.clientX + 14) + 'px';
+        tt.style.top = (e.clientY - 50) + 'px';
+        return;
+      }
+    }
+    hideHistTooltip();
+  };
+  canvasEl._histMouseLeave = function() { hideHistTooltip(); };
+  canvasEl.addEventListener('mousemove', canvasEl._histMouseMove);
+  canvasEl.addEventListener('mouseleave', canvasEl._histMouseLeave);
+}
+
 function setupCanvas(id) {
   const c = document.getElementById(id);
   const dpr = window.devicePixelRatio || 1;
@@ -649,6 +805,19 @@ function drawBar(id, data, opts) {
   ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText(xLabel, pad.l + cw / 2, h - 3);
+
+  // Hover metadata for tooltip
+  const canvasEl = document.getElementById(id);
+  const sumProb = entries.reduce((s, [, y]) => s + y, 0);
+  let cumBar = 0;
+  const hoverMeta = [];
+  for (const [v, y] of entries) {
+    const pBefore = cumBar / (sumProb || 1);
+    cumBar += y;
+    if (y > 0) hoverMeta.push({ v, y, pBefore });
+  }
+  canvasEl._histMeta = { entries: hoverMeta, step, eMinX: minX, xSpan, pad: PAD, isAnalytical: true };
+  attachHistTooltip(canvasEl);
 }
 
 // Histogram from raw counts array
@@ -735,6 +904,17 @@ function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
   ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText(xLabel, pad.l + cw / 2, h - 3);
+
+  // Hover metadata for tooltip
+  const canvasEl = document.getElementById(id);
+  let cumHist = 0;
+  const hoverMeta = entries.map(([v, c]) => {
+    const pBefore = cumHist / total;
+    cumHist += c;
+    return { v, c, pBefore };
+  });
+  canvasEl._histMeta = { entries: hoverMeta, step, eMinX, xSpan, pad: PAD, isAnalytical: false };
+  attachHistTooltip(canvasEl);
 }
 
 // ============================================================
@@ -838,6 +1018,36 @@ function stopWorker() {
 // ============================================================
 let sessionRunning = false;
 
+document.getElementById('sess-mode-sim').addEventListener('click', () => {
+  sessMode = 'sim';
+  document.getElementById('sess-mode-sim').classList.add('active');
+  document.getElementById('sess-mode-load').classList.remove('active');
+  document.getElementById('sess-panel-sim').style.display = '';
+  document.getElementById('sess-panel-load').style.display = 'none';
+});
+document.getElementById('sess-mode-load').addEventListener('click', () => {
+  sessMode = 'load';
+  document.getElementById('sess-mode-sim').classList.remove('active');
+  document.getElementById('sess-mode-load').classList.add('active');
+  document.getElementById('sess-panel-sim').style.display = 'none';
+  document.getElementById('sess-panel-load').style.display = '';
+});
+document.getElementById('inp-sess-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!Array.isArray(data)) throw new Error();
+      sessionOutcomes = data;
+      document.getElementById('session-count').textContent = sessionOutcomes.length + ' sessions';
+      drawSessionChart();
+    } catch { alert('Invalid JSON: expected array of numbers'); }
+  };
+  reader.readAsText(file);
+});
+
 document.getElementById('btn-session').addEventListener('click', () => {
   if (sessionRunning) {
     stopWorker();
@@ -893,6 +1103,42 @@ function drawSessionChart() {
 //  ROE
 // ============================================================
 let roeRunning = false;
+
+document.getElementById('roe-mode-sim').addEventListener('click', () => {
+  roeMode = 'sim';
+  document.getElementById('roe-mode-sim').classList.add('active');
+  document.getElementById('roe-mode-load').classList.remove('active');
+  document.getElementById('roe-panel-sim').style.display = '';
+  document.getElementById('roe-panel-load').style.display = 'none';
+});
+document.getElementById('roe-mode-load').addEventListener('click', () => {
+  roeMode = 'load';
+  document.getElementById('roe-mode-sim').classList.remove('active');
+  document.getElementById('roe-mode-load').classList.add('active');
+  document.getElementById('roe-panel-sim').style.display = 'none';
+  document.getElementById('roe-panel-load').style.display = '';
+});
+document.getElementById('inp-roe-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const raw = JSON.parse(ev.target.result);
+      if (Array.isArray(raw)) {
+        roeSpins = raw;
+        roeTotal = raw.length;
+      } else if (raw.bankrupt && Array.isArray(raw.bankrupt)) {
+        roeSpins = raw.bankrupt;
+        roeTotal = raw.total || raw.bankrupt.length;
+      } else throw new Error();
+      document.getElementById('roe-count').textContent = roeSpins.length + ' / ' + roeTotal + ' players';
+      updateROEStats();
+      drawROEChart();
+    } catch { alert('Invalid JSON: expected array or { bankrupt: [...], total: N }'); }
+  };
+  reader.readAsText(file);
+});
 
 document.getElementById('btn-roe').addEventListener('click', () => {
   if (roeRunning) {
@@ -1174,14 +1420,27 @@ window.addEventListener('resize', () => {
 });
 
 // ============================================================
+//  HELP TOGGLES
+// ============================================================
+document.querySelectorAll('.btn-help').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const block = btn.nextElementSibling;
+    const visible = block.style.display !== 'none';
+    block.style.display = visible ? 'none' : '';
+    btn.classList.toggle('active', !visible);
+  });
+});
+
+// ============================================================
 //  INIT
 // ============================================================
-const _p = PRESETS.classic3x3;
+const _p = PRESETS.candyVolatility;
 cfg.rows = _p.rows.map(r => ({ ...r }));
 cfg.lines = _p.lines;
 document.getElementById('sel-lines').value = _p.lines;
 renderConfig();
 </script>
+<div id="hist-tooltip"></div>
 <div class="claude-credit">Powered by <span>Claude Code</span></div>
 </body>
 </html>
