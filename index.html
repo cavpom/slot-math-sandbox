@@ -133,8 +133,21 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
         </select>
       </div>
       <div>
+        <label>Preset:</label>
+        <select id="sel-preset">
+          <option value="">— select —</option>
+          <option value="classic3x3">Classic 3x3</option>
+          <option value="candyVolatility">Candy Volatility</option>
+          <option value="dryDesert">Dry Desert</option>
+        </select>
+      </div>
+      <div>
         <div style="font-size:11px;color:var(--dim);margin-bottom:4px">Total RTP</div>
         <div class="rtp-val" id="rtp-val">—</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--dim);margin-bottom:4px">Hit rate</div>
+        <div class="rtp-val" id="hit-rate-val">—</div>
       </div>
       <button id="btn-fit">Fit to 96%</button>
     </div>
@@ -212,9 +225,9 @@ const T = 20;
 
 let cfg = {
   rows: [
-    { freq: 5,   payout: 10  },
-    { freq: 2,   payout: 25  },
-    { freq: 0.5, payout: 100 },
+    { freq: 0.05,  payout: 10  },
+    { freq: 0.02,  payout: 25  },
+    { freq: 0.005, payout: 100 },
   ],
   lines: 10
 };
@@ -239,43 +252,94 @@ const COLOR_RANGES = [
 let brActiveColors = new Set(COLOR_RANGES.map(c => c.color));
 
 // ============================================================
+//  PRESETS
+// ============================================================
+const PRESETS = {
+  classic3x3: {
+    lines: 5,
+    rows: [
+      { freq: 0.050, payout: 0.5 },
+      { freq: 0.040, payout: 1   },
+      { freq: 0.024, payout: 2   },
+      { freq: 0.010, payout: 5   },
+      { freq: 0.003, payout: 10  },
+    ],
+  },
+  candyVolatility: {
+    lines: 20,
+    rows: [
+      { freq: 0.0100,   payout: 0.5  },
+      { freq: 0.00715,  payout: 1    },
+      { freq: 0.00430,  payout: 2    },
+      { freq: 0.00170,  payout: 5    },
+      { freq: 0.000715, payout: 10   },
+      { freq: 0.00023,  payout: 25   },
+      { freq: 0.000057, payout: 100  },
+    ],
+  },
+  dryDesert: {
+    lines: 20,
+    rows: [
+      { freq: 0.0113,    payout: 1   },
+      { freq: 0.00565,   payout: 2   },
+      { freq: 0.00188,   payout: 5   },
+      { freq: 0.000755,  payout: 10  },
+      { freq: 0.000188,  payout: 25  },
+      { freq: 0.0000377, payout: 100 },
+    ],
+  },
+};
+
+// ============================================================
 //  CONFIG TAB
 // ============================================================
-function renderConfig() {
-  const tbody = document.getElementById('dist-tbody');
-  tbody.innerHTML = '';
-
+function updateDerivedValues() {
+  // freq is stored as decimal (0–1); multiply by 100 only for display
+  const trs = document.querySelectorAll('#dist-tbody tr');
   let freqSum = 0;
   cfg.rows.forEach((row, i) => {
     freqSum += row.freq;
-    const contrib = (row.freq * row.payout * cfg.lines / 100).toFixed(2);
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      `<td><input type="number" class="fi" data-i="${i}" value="${row.freq}" min="0" max="100" step="0.01"${simLocked?' disabled':''}></td>` +
-      `<td><input type="number" class="pi" data-i="${i}" value="${row.payout}" min="0" step="0.01"${simLocked?' disabled':''}></td>` +
-      `<td class="rtp-col">${contrib}%</td>` +
-      `<td><button class="danger di" data-i="${i}"${simLocked?' disabled':''}>×</button></td>`;
-    tbody.appendChild(tr);
+    const contrib = (row.freq * row.payout * cfg.lines * 100).toFixed(2);
+    if (trs[i]) trs[i].querySelector('.rtp-col').textContent = contrib + '%';
   });
 
-  const nullFreq = 100 - freqSum;
+  const nullFreqPct = (1 - freqSum) * 100;
   const nullEl = document.getElementById('null-freq');
-  nullEl.textContent = nullFreq.toFixed(2) + '%';
-  nullEl.className = nullFreq < -0.001 ? 'freq-err' : '';
+  nullEl.textContent = nullFreqPct.toFixed(2) + '%';
+  nullEl.className = nullFreqPct < -0.001 ? 'freq-err' : '';
 
-  const rtp = cfg.rows.reduce((s, r) => s + r.freq * r.payout * cfg.lines / 100, 0);
+  const rtp = cfg.rows.reduce((s, r) => s + r.freq * r.payout * cfg.lines * 100, 0);
   const rtpEl = document.getElementById('rtp-val');
   rtpEl.textContent = rtp.toFixed(2) + '%';
   rtpEl.style.color = rtp > 100 ? 'var(--red)' : rtp > 97 ? 'var(--yellow)' : 'var(--green)';
 
-  // attach listeners
+  const hitRate = (1 - Math.pow(1 - freqSum, cfg.lines)) * 100;
+  document.getElementById('hit-rate-val').textContent = hitRate.toFixed(2) + '%';
+}
+
+function renderConfig() {
+  const tbody = document.getElementById('dist-tbody');
+  tbody.innerHTML = '';
+
+  cfg.rows.forEach((row, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td><input type="number" class="fi" data-i="${i}" value="${+(row.freq * 100).toFixed(6)}" min="0" max="100" step="0.01"${simLocked?' disabled':''}></td>` +
+      `<td><input type="number" class="pi" data-i="${i}" value="${row.payout}" min="0" step="0.01"${simLocked?' disabled':''}></td>` +
+      `<td class="rtp-col"></td>` +
+      `<td><button class="danger di" data-i="${i}"${simLocked?' disabled':''}>×</button></td>`;
+    tbody.appendChild(tr);
+  });
+
+  // attach listeners — only update derived values on input, never rebuild DOM
+  // freq input is in %, stored internally as decimal (0–1)
   tbody.querySelectorAll('.fi').forEach(el => el.addEventListener('input', e => {
-    cfg.rows[+e.target.dataset.i].freq = parseFloat(e.target.value) || 0;
-    renderConfig();
+    cfg.rows[+e.target.dataset.i].freq = (parseFloat(e.target.value) || 0) / 100;
+    updateDerivedValues();
   }));
   tbody.querySelectorAll('.pi').forEach(el => el.addEventListener('input', e => {
     cfg.rows[+e.target.dataset.i].payout = parseFloat(e.target.value) || 0;
-    renderConfig();
+    updateDerivedValues();
   }));
   tbody.querySelectorAll('.di').forEach(el => el.addEventListener('click', e => {
     cfg.rows.splice(+e.target.dataset.i, 1);
@@ -284,10 +348,12 @@ function renderConfig() {
 
   document.getElementById('btn-add-row').disabled = simLocked;
   document.getElementById('btn-fit').disabled = simLocked;
+
+  updateDerivedValues();
 }
 
 document.getElementById('btn-add-row').addEventListener('click', () => {
-  cfg.rows.push({ freq: 1, payout: 1 });
+  cfg.rows.push({ freq: 0.01, payout: 1 });
   renderConfig();
 });
 
@@ -301,15 +367,27 @@ document.getElementById('sel-lines').addEventListener('change', e => {
   renderConfig();
 });
 
+document.getElementById('sel-preset').addEventListener('change', e => {
+  const key = e.target.value;
+  if (!key || !PRESETS[key]) return;
+  const p = PRESETS[key];
+  cfg.rows = p.rows.map(r => ({ ...r }));
+  cfg.lines = p.lines;
+  document.getElementById('sel-lines').value = p.lines;
+  e.target.value = '';
+  renderConfig();
+});
+
 document.getElementById('btn-fit').addEventListener('click', () => {
-  const rtp = cfg.rows.reduce((s, r) => s + r.freq * r.payout * cfg.lines / 100, 0);
+  // rtp in % (freq is decimal, so multiply by 100)
+  const rtp = cfg.rows.reduce((s, r) => s + r.freq * r.payout * cfg.lines * 100, 0);
   if (rtp <= 0) { alert('Cannot fit: RTP is 0'); return; }
   const scale = 96 / rtp;
-  const newFreqs = cfg.rows.map(r => r.freq * scale);
-  if (newFreqs.reduce((s, f) => s + f, 0) > 100.0001) {
+  const newFreqs = cfg.rows.map(r => r.freq * scale);  // still decimal
+  if (newFreqs.reduce((s, f) => s + f, 0) > 1.000001) {
     alert('Cannot fit to 96%: total frequency would exceed 100%'); return;
   }
-  cfg.rows.forEach((r, i) => r.freq = +newFreqs[i].toFixed(4));
+  cfg.rows.forEach((r, i) => r.freq = +newFreqs[i].toFixed(8));
   renderConfig();
 });
 
@@ -317,14 +395,15 @@ document.getElementById('btn-fit').addEventListener('click', () => {
 //  DISTRIBUTION TAB  (analytical)
 // ============================================================
 function computeLinePMF() {
+  // freq is decimal (0–1), probabilities are already in correct units
   const pmf = {};
   let freqSum = 0;
   for (const r of cfg.rows) {
     freqSum += r.freq;
     const v = r.payout;
-    pmf[v] = (pmf[v] || 0) + r.freq / 100;
+    pmf[v] = (pmf[v] || 0) + r.freq;
   }
-  const nullP = Math.max(0, (100 - freqSum) / 100);
+  const nullP = Math.max(0, 1 - freqSum);
   pmf[0] = (pmf[0] || 0) + nullP;
   return pmf;
 }
@@ -374,30 +453,38 @@ function percentilesFromPMF(pmf, pcts) {
   return result;
 }
 
+const DIST_CAP = 2000;
+
 function renderDistribution() {
   const pmf = getSpinPMF();
   const step = 10;
   const bPMF = bucketPMF(pmf, step);
   const pcts = percentilesFromPMF(pmf, [10, 50, 90]);
 
-  // Win Frequency
+  // Win Frequency — cap overflow into DIST_CAP bucket
   const freqData = {};
-  for (const [v, p] of Object.entries(bPMF)) if (p > 0) freqData[+v] = p * 100;
+  for (const [v, p] of Object.entries(bPMF)) {
+    if (p <= 0) continue;
+    const key = +v > DIST_CAP ? DIST_CAP : +v;
+    freqData[key] = (freqData[key] || 0) + p * 100;
+  }
 
-  // RTP Distribution: freq * win per bucket (skip win=0 bucket since contrib=0)
+  // RTP Distribution — cap overflow into DIST_CAP bucket
   const rtpData = {};
   for (const [v, p] of Object.entries(pmf)) {
     if (+v === 0) continue;
-    const b = Math.floor(+v / step) * step;
+    const b = Math.min(Math.floor(+v / step) * step, DIST_CAP);
     rtpData[b] = (rtpData[b] || 0) + p * +v * 100;
   }
 
-  // Shared X range across both charts (non-zero entries)
+  // X range: up to actual data, but capped at DIST_CAP
   const allKeys = [...Object.keys(freqData), ...Object.keys(rtpData)].map(Number).filter(v => v > 0);
-  const sharedMax = allKeys.length ? Math.max(...allKeys) : step;
+  const dataMax = allKeys.length ? Math.max(...allKeys) : step;
+  const sharedMax = Math.min(dataMax, DIST_CAP);
+  const capX = dataMax > DIST_CAP ? DIST_CAP : undefined;
 
-  drawBar('c-winfreq', freqData, { color: '#4a9eff', xLabel: 'Win (bets)', pcts, forceMinX: 0, forceMaxX: sharedMax });
-  drawBar('c-rtpdist', rtpData, { color: '#2ecc71', xLabel: 'Win (bets)', pcts, forceMinX: 0, forceMaxX: sharedMax });
+  drawBar('c-winfreq', freqData, { color: '#4a9eff', xLabel: 'Win (bets)', pcts, forceMinX: 0, forceMaxX: sharedMax, capX });
+  drawBar('c-rtpdist', rtpData, { color: '#2ecc71', xLabel: 'Win (bets)', pcts, forceMinX: 0, forceMaxX: sharedMax, capX });
 }
 
 // ============================================================
@@ -419,7 +506,7 @@ const PAD = { t: 28, r: 20, b: 44, l: 58 };
 
 function drawBar(id, data, opts) {
   const { ctx, w, h } = setupCanvas(id);
-  const { color = '#4a9eff', xLabel = '', pcts = {}, forceMinX, forceMaxX } = opts;
+  const { color = '#4a9eff', xLabel = '', pcts = {}, forceMinX, forceMaxX, capX } = opts;
   const pad = PAD;
   const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
 
@@ -448,7 +535,7 @@ function drawBar(id, data, opts) {
   ctx.lineWidth = 1;
   const yTicks = 4;
   ctx.font = '10px system-ui';
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = '#888';
   ctx.textAlign = 'right';
   for (let i = 0; i <= yTicks; i++) {
     const v = maxY * i / yTicks;
@@ -482,17 +569,18 @@ function drawBar(id, data, opts) {
   }
 
   // X axis ticks
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = '#888';
   ctx.textAlign = 'center';
   ctx.font = '10px system-ui';
   const maxLabels = Math.floor(cw / 40);
   const labelEvery = Math.max(step, Math.ceil(xSpan / maxLabels / step) * step);
   for (let v = minX; v <= maxX; v += labelEvery) {
-    ctx.fillText(v, toX(v) + barW / 2, pad.t + ch + 14);
+    const label = (capX !== undefined && v === capX) ? capX + '+' : v;
+    ctx.fillText(label, toX(v) + barW / 2, pad.t + ch + 14);
   }
 
   // Axis label
-  ctx.fillStyle = '#444';
+  ctx.fillStyle = '#888';
   ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText(xLabel, pad.l + cw / 2, h - 3);
@@ -523,32 +611,34 @@ function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
   const eMinX = entries[0][0];
   const eMaxX = entries[entries.length - 1][0];
   const xSpan = eMaxX - eMinX + step;
-  const maxCount = Math.max(...entries.map(e => e[1]), 1);
+  const total = entries.reduce((s, [, c]) => s + c, 0) || 1;
+  const maxPct = Math.max(...entries.map(([, c]) => c / total * 100), 1e-9);
 
   const barW = Math.max(1, cw / (xSpan / step) - 0.5);
   const toX = v => pad.l + (v - eMinX) / xSpan * cw;
-  const toY = v => pad.t + ch - (v / maxCount) * ch;
+  const toY = pct => pad.t + ch - (pct / maxPct) * ch;
 
   // Grid
   ctx.strokeStyle = '#1e1e1e';
   ctx.lineWidth = 1;
   ctx.font = '10px system-ui';
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = '#888';
   ctx.textAlign = 'right';
   const yTicks = 4;
   for (let i = 0; i <= yTicks; i++) {
-    const v = maxCount * i / yTicks;
-    const y = toY(v);
+    const pct = maxPct * i / yTicks;
+    const y = toY(pct);
     ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + cw, y); ctx.stroke();
-    ctx.fillText(Math.round(v), pad.l - 4, y + 3);
+    ctx.fillText(pct.toFixed(pct < 1 ? 1 : 0) + '%', pad.l - 4, y + 3);
   }
 
   // Bars
   ctx.fillStyle = color + 'aa';
   for (const [v, c] of entries) {
+    const pct = c / total * 100;
     const x = toX(v);
-    const bh = (c / maxCount) * ch;
-    ctx.fillRect(x, toY(c), barW, bh);
+    const bh = (pct / maxPct) * ch;
+    ctx.fillRect(x, toY(pct), barW, bh);
   }
 
   // Percentile lines
@@ -567,7 +657,7 @@ function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
   }
 
   // X ticks
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = '#888';
   ctx.textAlign = 'center';
   ctx.font = '10px system-ui';
   const maxLabels = Math.floor(cw / 40);
@@ -576,7 +666,7 @@ function drawHistogramCanvas(id, buckets, pcts, opts = {}) {
     ctx.fillText(v, toX(v) + barW / 2, pad.t + ch + 14);
   }
 
-  ctx.fillStyle = '#444';
+  ctx.fillStyle = '#888';
   ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText(xLabel, pad.l + cw / 2, h - 3);
@@ -591,9 +681,10 @@ let running = false;
 let st = null; // task state
 
 function spinWin(rows, lines) {
+  // rows[i].freq is decimal (0–1)
   let total = 0;
   for (let l = 0; l < lines; l++) {
-    const rnd = Math.random() * 100;
+    const rnd = Math.random();
     let cum = 0, won = 0;
     for (const row of rows) {
       cum += row.freq;
@@ -656,7 +747,7 @@ self.onmessage = function(msg) {
   if (d.type === 'stop') { running = false; st = null; return; }
   running = true;
   st = { task: d.task, rows: d.rows, lines: d.lines,
-         spins: d.spins, bank: d.bank, limit: d.bank ? d.bank * T : 0,
+         spins: d.spins, bank: d.bank, limit: d.bank ? d.bank * T + 1 : 0,
          numPlayers: d.numPlayers, outcomes: [], spinCounts: [], players: [] };
   setTimeout(runBatch, 0);
 };
@@ -873,8 +964,11 @@ function drawBankrollChart() {
 
   ctx.clearRect(0, 0, w, h);
 
-  const maxSpins = Math.max(...brPlayers.map(p => p.bal.length - 1));
-  const maxBal = Math.max(...brPlayers.flatMap(p => p.bal), 1);
+  let maxSpins = 0, maxBal = 1;
+  for (const p of brPlayers) {
+    if (p.bal.length - 1 > maxSpins) maxSpins = p.bal.length - 1;
+    for (const b of p.bal) if (b > maxBal) maxBal = b;
+  }
 
   const toX = i => pad.l + (i / maxSpins) * cw;
   const toY = v => pad.t + ch - (Math.max(0, v) / maxBal) * ch;
@@ -889,7 +983,7 @@ function drawBankrollChart() {
   }
 
   // Curves
-  ctx.lineWidth = 0.7;
+  ctx.lineWidth = 1.5;
   for (const p of brPlayers) {
     if (!brActiveColors.has(p.color)) continue;
     ctx.strokeStyle = p.color + '50';
@@ -902,7 +996,7 @@ function drawBankrollChart() {
   }
 
   // Y labels
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = '#888';
   ctx.font = '10px system-ui';
   ctx.textAlign = 'right';
   for (let i = 0; i <= yTicks; i++) {
@@ -918,7 +1012,7 @@ function drawBankrollChart() {
     ctx.fillText(v, toX(v), pad.t + ch + 14);
   }
 
-  ctx.fillStyle = '#444';
+  ctx.fillStyle = '#888';
   ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText('Spins', pad.l + cw / 2, h - 3);
