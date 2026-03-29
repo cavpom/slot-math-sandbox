@@ -88,6 +88,28 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 }
 .legend-item.off { opacity: .3; }
 .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* ---- Help blocks ---- */
+.help-block {
+  color: #888; font-size: 11px; line-height: 1.75;
+  margin-bottom: 20px; max-width: 600px;
+  border-left: 2px solid var(--border); padding-left: 12px;
+}
+.help-block b { color: #aaa; font-weight: 600; }
+.help-block pre {
+  font-family: monospace; font-size: 10px; color: #666;
+  margin-top: 6px; padding: 7px 10px;
+  background: var(--surface); border-radius: 3px;
+  white-space: pre; line-height: 1.5;
+}
+
+/* ---- Credit ---- */
+.claude-credit {
+  position: fixed; bottom: 10px; left: 14px;
+  font-size: 10px; color: #888; opacity: 0.7;
+  pointer-events: none; user-select: none;
+}
+.claude-credit span { color: #E87040; opacity: 1; }
 </style>
 </head>
 <body>
@@ -102,6 +124,16 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== CONFIG ===== -->
 <div id="pane-config" class="tab-pane active">
+  <div class="help-block">
+    <b>Config</b><br>
+    Define outcome distribution per line.<br><br>
+    <b>Freq (%)</b> — probability of each payout on a single line.<br>
+    <b>Payout (x)</b> — win multiplier for that outcome.<br><br>
+    Total RTP = sum(freq × payout × lines)<br>
+    Hit rate = probability of any win per spin across all lines.<br><br>
+    0x outcome is calculated automatically as remaining probability.<br><br>
+    Use <b>Preset</b> dropdown to load predefined slot configs (Classic 3x3, Candy Volatility, Dry Desert).
+  </div>
   <div class="cfg-layout">
     <div class="cfg-table-wrap">
       <table>
@@ -156,6 +188,13 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== DISTRIBUTION ===== -->
 <div id="pane-dist" class="tab-pane">
+  <div class="help-block">
+    <b>Distribution</b><br>
+    Analytical distribution of outcomes per spin.<br><br>
+    <b>Win Frequency</b> — probability of total win values.<br>
+    <b>RTP Distribution</b> — contribution of each win bucket to total RTP.<br><br>
+    Based on exact convolution of line distributions — not simulation.
+  </div>
   <div class="chart-section">
     <div class="chart-title">Win Frequency</div>
     <canvas id="c-winfreq" height="220"></canvas>
@@ -168,6 +207,13 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== SESSION OUTCOME ===== -->
 <div id="pane-session" class="tab-pane">
+  <div class="help-block">
+    <b>Session Outcome</b><br>
+    Simulates player results over a fixed number of spins.<br><br>
+    Each session: <b>balance = total win − total bet</b><br><br>
+    Shows distribution of outcomes after N spins.<br>
+    Useful to understand real player experience vs theoretical RTP.
+  </div>
   <div class="sim-bar">
     <label>Spins per session:</label>
     <input type="number" id="inp-session-spins" value="200" min="1" max="50000" style="width:85px">
@@ -179,6 +225,13 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== ROE ===== -->
 <div id="pane-roe" class="tab-pane">
+  <div class="help-block">
+    <b>ROE — Risk of Ruin</b><br>
+    Probability of a player running out of balance within a limited number of spins.<br><br>
+    <b>ROE</b> = % of players who reach zero before the spin limit (bank × 20).<br><br>
+    Mean and median are calculated only for ruined players.<br>
+    Players who survive to the limit are treated as censored — excluded from histogram.
+  </div>
   <div class="sim-bar">
     <label>Starting bank (bets):</label>
     <input type="number" id="inp-roe-bank" value="100" min="1" max="100000" style="width:85px">
@@ -186,6 +239,7 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
     <span id="roe-count" style="color:var(--dim);font-size:12px"></span>
   </div>
   <div class="stats-row" id="roe-stats" style="display:none">
+    <div class="stat-box"><div class="stat-lbl">ROE</div><div class="stat-val" id="roe-pct">—</div></div>
     <div class="stat-box"><div class="stat-lbl">Mean spins to ruin</div><div class="stat-val" id="roe-mean">—</div></div>
     <div class="stat-box"><div class="stat-lbl">Median spins to ruin</div><div class="stat-val" id="roe-median">—</div></div>
   </div>
@@ -194,6 +248,16 @@ canvas { display: block; width: 100%; background: var(--surface); border-radius:
 
 <!-- ===== BANKROLL ===== -->
 <div id="pane-bankroll" class="tab-pane">
+  <div class="help-block">
+    <b>Bankroll</b><br>
+    Simulates balance trajectories for multiple players.<br><br>
+    Each line = one player's balance over time.<br>
+    Players are grouped by survival duration (color = spins to ruin).<br><br>
+    Custom JSON format:<pre>[[100, 98, 105, 103, 0],
+ [100, 110, 130,  90, 0],
+ ...]</pre>
+    Each array is one player's balance sequence over spins.
+  </div>
   <div class="mode-bar">
     <button id="br-mode-sim" class="active">Simulate</button>
     <button id="br-mode-load">Load JSON</button>
@@ -237,7 +301,8 @@ let activeWorker = null;
 
 // Per-tab data
 let sessionOutcomes = [];
-let roeSpins = [];
+let roeSpins = [];   // only bankrupt players
+let roeTotal = 0;    // all simulated players (bankrupt + survived)
 let brPlayers = [];  // [{balances, color, endSpin}]
 
 const COLOR_RANGES = [
@@ -699,23 +764,29 @@ function runBatch() {
   if (!running || !st) return;
 
   if (st.task === 'session') {
+    // compute batch, send only delta — no accumulation in worker
+    const newOutcomes = [];
     for (let i = 0; i < 200; i++) {
       let w = 0;
       for (let j = 0; j < st.spins; j++) w += spinWin(st.rows, st.lines);
-      st.outcomes.push(w - st.spins);
+      newOutcomes.push(w - st.spins);
     }
-    self.postMessage({ type: 'progress', task: 'session', outcomes: st.outcomes.slice() });
+    self.postMessage({ type: 'progress', task: 'session', newOutcomes });
     if (running) setTimeout(runBatch, 0); else self.postMessage({ type: 'done', task: 'session' });
     return;
   }
 
   if (st.task === 'roe') {
+    // separate bankrupt (b <= 0) from survived (hit limit) — send only bankrupt as delta
+    const newBankrupt = [];
     for (let i = 0; i < 50; i++) {
       let b = st.bank, n = 0;
       while (b > 0 && n < st.limit) { b += spinWin(st.rows, st.lines) - 1; n++; }
-      st.spinCounts.push(n);
+      if (b <= 0) newBankrupt.push(n);
     }
-    self.postMessage({ type: 'progress', task: 'roe', spinCounts: st.spinCounts.slice() });
+    st.bankruptCount += newBankrupt.length;
+    st.totalCount += 50;
+    self.postMessage({ type: 'progress', task: 'roe', newBankrupt, bankruptCount: st.bankruptCount, totalCount: st.totalCount });
     if (running) setTimeout(runBatch, 0); else self.postMessage({ type: 'done', task: 'roe' });
     return;
   }
@@ -748,7 +819,7 @@ self.onmessage = function(msg) {
   running = true;
   st = { task: d.task, rows: d.rows, lines: d.lines,
          spins: d.spins, bank: d.bank, limit: d.bank ? d.bank * T + 1 : 0,
-         numPlayers: d.numPlayers, outcomes: [], spinCounts: [], players: [] };
+         numPlayers: d.numPlayers, bankruptCount: 0, totalCount: 0, players: [] };
   setTimeout(runBatch, 0);
 };
 `;
@@ -793,7 +864,7 @@ function startSession() {
     const d = e.data;
     if (d.task !== 'session') return;
     if (d.type === 'progress') {
-      sessionOutcomes = d.outcomes;
+      for (const v of d.newOutcomes) sessionOutcomes.push(v);
       document.getElementById('session-count').textContent = sessionOutcomes.length + ' sessions';
       drawSessionChart();
     }
@@ -829,6 +900,7 @@ document.getElementById('btn-roe').addEventListener('click', () => {
     const b = document.getElementById('btn-roe'); b.textContent = 'Simulate'; b.className = 'primary';
   } else {
     roeSpins = [];
+    roeTotal = 0;
     document.getElementById('roe-stats').style.display = 'none';
     startROE();
   }
@@ -846,8 +918,9 @@ function startROE() {
     const d = e.data;
     if (d.task !== 'roe') return;
     if (d.type === 'progress') {
-      roeSpins = d.spinCounts;
-      document.getElementById('roe-count').textContent = roeSpins.length + ' players';
+      for (const v of d.newBankrupt) roeSpins.push(v);
+      roeTotal = d.totalCount;
+      document.getElementById('roe-count').textContent = d.bankruptCount + ' / ' + d.totalCount + ' players';
       updateROEStats();
       drawROEChart();
     }
@@ -860,12 +933,18 @@ function startROE() {
 }
 
 function updateROEStats() {
-  if (!roeSpins.length) return;
-  const sorted = [...roeSpins].sort((a, b) => a - b);
-  const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
-  const median = sorted[Math.floor(sorted.length / 2)];
-  document.getElementById('roe-mean').textContent = mean.toFixed(1);
-  document.getElementById('roe-median').textContent = median;
+  if (!roeTotal) return;
+  document.getElementById('roe-pct').textContent = (roeSpins.length / roeTotal * 100).toFixed(1) + '%';
+  if (roeSpins.length) {
+    const sorted = [...roeSpins].sort((a, b) => a - b);
+    const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
+    const median = sorted[Math.floor(sorted.length / 2)];
+    document.getElementById('roe-mean').textContent = mean.toFixed(1);
+    document.getElementById('roe-median').textContent = median;
+  } else {
+    document.getElementById('roe-mean').textContent = '—';
+    document.getElementById('roe-median').textContent = '—';
+  }
   document.getElementById('roe-stats').style.display = 'flex';
 }
 
@@ -1097,7 +1176,12 @@ window.addEventListener('resize', () => {
 // ============================================================
 //  INIT
 // ============================================================
+const _p = PRESETS.classic3x3;
+cfg.rows = _p.rows.map(r => ({ ...r }));
+cfg.lines = _p.lines;
+document.getElementById('sel-lines').value = _p.lines;
 renderConfig();
 </script>
+<div class="claude-credit">Powered by <span>Claude Code</span></div>
 </body>
 </html>
